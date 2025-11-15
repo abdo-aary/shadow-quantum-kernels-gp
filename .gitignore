@@ -1,0 +1,36 @@
+# Ignore everything in the storage directory
+/storage/**
+!/storage/objects/
+!/storage/figs/
+
+# Don't ignore the placeholder file
+!/storage/placeholder
+
+venv/
+
+# Draft
+#draft/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# SageMath parsed files
+*.sage.py
+
+# IDE
+.idea/
+
+# reminder files
+reminder*
+
+output/
+
+*draft*
