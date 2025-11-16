@@ -49,7 +49,7 @@ def test_run_pubs_correct_states_and_shape(max_threads):
     n_qubits = qc1.num_qubits
     dim = 1 << n_qubits
 
-    runner = ExactCircuitsRunner()
+    runner = ExactCircuitsRunner(cfg=None)
 
     backend = AerSimulator(method="statevector", device="CPU")
     results = runner.run_pubs(
@@ -89,7 +89,7 @@ def test_run_pubs_raises_for_inconsistent_pubs():
       - circuits have different numbers of qubits, or
       - pubs don't all share the same M.
     """
-    runner = ExactCircuitsRunner()
+    runner = ExactCircuitsRunner(cfg=None)
 
     # Inconsistent qubit numbers
     theta = Parameter("θ")

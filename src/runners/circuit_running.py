@@ -9,6 +9,8 @@ from qiskit import QuantumCircuit
 from qiskit_aer import AerSimulator
 from qiskit import transpile
 
+from src.circuits.configs import CircuitArchitecture
+
 DEFAULT_BACKEND = AerSimulator(
     method="statevector",  # CPU statevector
     device="CPU"
@@ -27,6 +29,7 @@ class ExactResults:
     different states prepared after running each circuit with a non-data parameterization_r and a data x_i : 1<=i<=M.
     """
     states: np.ndarray
+    arch: CircuitArchitecture
 
 class BaseCircuitsRunner(ABC):
     """
@@ -43,6 +46,9 @@ class ExactCircuitsRunner(BaseCircuitsRunner):
     Interface setting the logic of how we run the circuits. This is to be implemented by two classes, ExactCircuitRunner
     and ShadowCircuitRunner. The results of these
     """
+    def __init__(self, arch: CircuitArchitecture):
+        self.arch = arch
+
     def run_pubs(
             self,
             pubs: List[Tuple[QuantumCircuit, np.ndarray]],
@@ -136,4 +142,4 @@ class ExactCircuitsRunner(BaseCircuitsRunner):
                 )
             states[r, m, :] = sv
 
-        return ExactResults(states=states)
+        return ExactResults(states=states, arch=self.arch)
