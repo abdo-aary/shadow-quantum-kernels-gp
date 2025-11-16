@@ -1,3 +1,5 @@
+# tests/circuits/test_uniform_parameter_sampling.py
+
 import math
 import numpy as np
 
@@ -19,53 +21,65 @@ def build_5q_architecture(input_dim: int = 2, num_layers: int = 2) -> CircuitArc
         num_layers=num_layers,
     )
 
-def _bind_x_to_zero(qc):
-    """
-    Helper: bind all data parameters x[*] to 0.0, leaving the
-    random non-data parameters fixed. This gives a fully numeric
-    circuit so we can compare statevectors.
-    """
-    if not qc.parameters:
+
+def _bind_x_to_zero(qc, name_assignment):
+    """Bind all non-data parameters from name_assignment and set x[*]=0."""
+    mapping = {}
+    for p in qc.parameters:
+        if p.name.startswith("x["):
+            mapping[p] = 0.0
+        elif p.name in name_assignment:
+            mapping[p] = float(name_assignment[p.name])
+    if not mapping:
         return qc
-
-    assignment = {
-        p: 0.0
-        for p in qc.parameters
-        if p.name.startswith("x[")
-    }
-    if not assignment:
-        return qc
-
-    return qc.assign_parameters(assignment, inplace=False)
+    return qc.assign_parameters(mapping, inplace=False)
 
 
-def test_uniform_sampling_T_and_other_params_ranges():
+# 1) parameter ranges and ξ norms ---------------------------------------------
+
+def test_uniform_sampling_parameter_ranges_and_xi_norms():
     arch = build_5q_architecture(input_dim=2, num_layers=2)
     qc = CircuitFactory.createSQPcircuit(arch)
 
     sampler = UniformParameterSamplingStrategy(arch, seed=123)
-    assignment = sampler.get_random_assignment(qc)
+    assignment = sampler.sample_random_assignment(qc)
 
     x_params = [p for p in qc.parameters if p.name.startswith("x[")]
-    T_params = [p for p in qc.parameters if p.name.startswith("T_")]
+    xi_params = [p for p in qc.parameters if p.name.startswith("xi_")]
     other_params = [
         p for p in qc.parameters
-        if not p.name.startswith("x[") and not p.name.startswith("T_")
+        if not p.name.startswith("x[") and not p.name.startswith("xi_")
     ]
 
-    # 1) x[*] params must NOT be sampled (user will bind them separately)
+    # x[j] must not appear
     for p in x_params:
-        assert p not in assignment
+        assert p.name not in assignment
 
-    # 2) T params Bernoulli in {0,1}
-    for p in T_params:
-        v = assignment[p]
-        assert v in (0.0, 1.0)
+    # ξ-layers each have ‖ξℓ‖ = 1/sqrt(zeta)
+    zeta = arch.input_dim
+    xi_by_layer = {}
+    for p in xi_params:
+        prefix, rest = p.name.split("[", 1)
+        ell_str = prefix.split("_", 1)[1]
+        ell = int(ell_str)
+        j_str = rest.split("]", 1)[0]
+        j = int(j_str)
+        if ell not in xi_by_layer:
+            xi_by_layer[ell] = np.zeros(zeta)
+        xi_by_layer[ell][j] = assignment[p.name]
 
-    # 3) All other (non-x, non-T) params in [-π, π]
+    for ell, vec in xi_by_layer.items():
+        norm = np.linalg.norm(vec)
+        target = 1.0 / math.sqrt(zeta)
+        assert math.isclose(norm, target, rel_tol=1e-6, abs_tol=1e-6)
+
+    # all other non-x, non-xi in [-π, π]
     for p in other_params:
-        v = assignment[p]
+        v = assignment[p.name]
         assert -math.pi <= v <= math.pi
+
+
+# 2) seed reproducibility (single draw) --------------------------------------
 
 def test_uniform_sampling_seed_reproducibility():
     arch = build_5q_architecture(input_dim=2, num_layers=2)
@@ -74,67 +88,42 @@ def test_uniform_sampling_seed_reproducibility():
     sampler1 = UniformParameterSamplingStrategy(arch, seed=42)
     sampler2 = UniformParameterSamplingStrategy(arch, seed=42)
 
-    assign1 = sampler1.get_random_assignment(qc)
-    assign2 = sampler2.get_random_assignment(qc)
+    assign1 = sampler1.sample_random_assignment(qc)
+    assign2 = sampler2.sample_random_assignment(qc)
 
-    # Compare via parameter names to avoid differing Parameter object identities
-    a1 = {p.name: v for p, v in assign1.items()}
-    a2 = {p.name: v for p, v in assign2.items()}
+    assert assign1 == assign2
 
-    assert a1 == a2
 
-def test_uniform_sampling_get_random_circuit_binds_all_non_x():
+# 3) seed reproducibility (R draws) ------------------------------------------
+
+def test_sample_R_random_assignments_seed_reproducibility():
     arch = build_5q_architecture(input_dim=2, num_layers=2)
     qc = CircuitFactory.createSQPcircuit(arch)
 
-    sampler = UniformParameterSamplingStrategy(arch, seed=7)
-    qc_assigned = sampler.get_random_circuit(qc)
-
-    remaining_param_names = {p.name for p in qc_assigned.parameters}
-
-    # All remaining parameters must be x[*] only
-    for name in remaining_param_names:
-        assert name.startswith("x[")
-
-    # There should be exactly input_dim data parameters left
-    assert len(remaining_param_names) == arch.input_dim
-
-
-def test_get_n_random_circuits_seed_reproducibility():
-    arch = build_5q_architecture(input_dim=2, num_layers=2)
-    base_qc = CircuitFactory.createSQPcircuit(arch)
-
     sampler = UniformParameterSamplingStrategy(arch, seed=999)
 
-    circuits1 = sampler.get_n_random_circuits(base_qc, num_circuits=3, seed=123)
-    circuits2 = sampler.get_n_random_circuits(base_qc, num_circuits=3, seed=123)
+    params_list_1 = sampler.sample_R_random_assignments(qc, num_draws=3, seed=123)
+    params_list_2 = sampler.sample_R_random_assignments(qc, num_draws=3, seed=123)
 
-    assert len(circuits1) == len(circuits2) == 3
+    assert len(params_list_1) == len(params_list_2) == 3
+    for a1, a2 in zip(params_list_1, params_list_2):
+        assert a1 == a2
 
-    for c1, c2 in zip(circuits1, circuits2):
-        b1 = _bind_x_to_zero(c1)
-        b2 = _bind_x_to_zero(c2)
 
-        sv1 = Statevector.from_instruction(b1).data
-        sv2 = Statevector.from_instruction(b2).data
+# 4) diversity of sampled assignments (different statevectors) ----------------
 
-        assert np.allclose(sv1, sv2)
-
-def test_get_n_random_circuits_produce_diverse_samples():
+def test_sample_R_random_assignments_produce_diverse_samples():
     arch = build_5q_architecture(input_dim=2, num_layers=2)
-    base_qc = CircuitFactory.createSQPcircuit(arch)
+    qc = CircuitFactory.createSQPcircuit(arch)
 
     sampler = UniformParameterSamplingStrategy(arch, seed=42)
+    params_list = sampler.sample_R_random_assignments(qc, num_draws=4, seed=None)
 
-    circuits = sampler.get_n_random_circuits(base_qc, num_circuits=4)  # seed=None by default
-
-    # Compute statevectors with x bound to 0 so only non-data params matter
     svs = []
-    for c in circuits:
-        b = _bind_x_to_zero(c)
-        svs.append(Statevector.from_instruction(b).data)
+    for assign in params_list:
+        qc_full = _bind_x_to_zero(qc, assign)
+        svs.append(Statevector.from_instruction(qc_full).data)
 
-    # Check that not all statevectors are equal
     all_equal = True
     for i in range(len(svs)):
         for j in range(i + 1, len(svs)):
@@ -145,3 +134,51 @@ def test_get_n_random_circuits_produce_diverse_samples():
             break
 
     assert not all_equal
+
+
+# 5) set_parameters_data correctness -----------------------------------------
+
+def test_set_parameters_data_merges_non_data_and_data_correctly():
+    arch = build_5q_architecture(input_dim=2, num_layers=2)
+    qc = CircuitFactory.createSQPcircuit(arch)
+
+    sampler = UniformParameterSamplingStrategy(arch, seed=7)
+    non_data = sampler.sample_random_assignment(qc)
+
+    X = np.array([[0.1, -0.2], [0.3, 0.5], [-0.4, 0.9]], dtype=float)
+    params_X = sampler.set_parameters_data(qc, non_data, X)
+    assert len(params_X) == X.shape[0]
+
+    # map j -> "x[j]"
+    x_names_by_index = {}
+    for p in qc.parameters:
+        if p.name.startswith("x["):
+            inside = p.name.split("[", 1)[1].split("]", 1)[0]
+            j = int(inside)
+            x_names_by_index[j] = p.name
+
+    assert len(x_names_by_index) == arch.input_dim
+
+    for m, params_m in enumerate(params_X):
+        # non-data params are present and equal
+        for name, v in non_data.items():
+            assert name in params_m
+            assert params_m[name] == v
+
+        # x[j] matches X[m, j]
+        for j, name in x_names_by_index.items():
+            assert math.isclose(params_m[name], X[m, j])
+
+
+def test_set_parameters_data_raises_on_wrong_input_dim():
+    import pytest
+
+    arch = build_5q_architecture(input_dim=2, num_layers=2)
+    qc = CircuitFactory.createSQPcircuit(arch)
+
+    sampler = UniformParameterSamplingStrategy(arch, seed=0)
+    non_data = sampler.sample_random_assignment(qc)
+
+    X_bad = np.random.randn(5, 3)
+    with pytest.raises(ValueError):
+        sampler.set_parameters_data(qc, non_data, X_bad)

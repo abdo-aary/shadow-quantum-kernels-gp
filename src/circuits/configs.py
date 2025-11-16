@@ -113,3 +113,18 @@ class CircuitArchitecture:
                 "Blocks do not cover all qubits in [0, num_qubits). "
                 f"Missing qubits: {sorted(missing)}."
             )
+
+
+def ring_block(qubits: Sequence[int]) -> BlockSpec:
+    # Order the sequence of qubits by indices
+    # Run a (i, i+1) edges and finish by (n-1, 0) edge
+    qubits = sorted(qubits)
+    edges = []
+    k = len(qubits)
+    for i in range(k - 1):
+        edges.append((qubits[i], qubits[i+1]))
+    if k > 2:
+        # This is because in k=2, the edge (qubits[0], qubits[1]) = (qubits[k-1], qubits[0])
+        edges.append((qubits[k-1], qubits[0]))
+
+    return BlockSpec(qubits=tuple(qubits), edges=tuple(edges))

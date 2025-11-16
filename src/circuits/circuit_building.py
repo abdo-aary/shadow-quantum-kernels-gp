@@ -28,7 +28,7 @@ class CircuitFactory:
             A parametrized Qiskit circuit with:
             - data parameters x[0:input_dim]
             - generator parameters xi_ℓ[j], deltas_{b,ℓ}[q]
-            - evolution parameters T_{b,ℓ}[q], ZZ_{b,ℓ}[edge], Rx_{b,ℓ}[q]
+            - evolution parameters P_{b,ℓ}[q], ZZ_{b,ℓ}[edge], Rx_{b,ℓ}[q]
         """
         # Input data parameters x ∈ R^{ζ}
         x = ParameterVector("x", cfg.input_dim)
@@ -81,13 +81,13 @@ class CircuitFactory:
                 for e_idx, (q1, q2) in enumerate(edges):
                     qc.rzz(2 * ZZ_params_b_ell[e_idx], q1, q2)
 
-                # c) Non-Clifford T-doping: T^{t^{(q)}_{b,ℓ}}_q
-                # Implemented as a phase gate P(π/4 * t), where t ∈ {0, 1} in practice.
-                T_params_b_ell = ParameterVector(
-                    f"T_{b}_{ell}", length=len(qubits)
+                # c) Generic phase gates P_q(φ^{(q)}_{b,ℓ})
+                # Implemented directly as P(φ), where φ ∈ (-π, π] is a learnable / sampled parameter.
+                P_params_b_ell = ParameterVector(
+                    f"P_{b}_{ell}", length=len(qubits)
                 )
                 for idx, q in enumerate(qubits):
-                    qc.p(pi / 4 * T_params_b_ell[idx], q)
+                    qc.p(P_params_b_ell[idx], q)
 
 
             # At this point, for layer ℓ, we have applied:

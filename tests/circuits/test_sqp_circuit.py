@@ -183,7 +183,7 @@ def test_sqp_circuit_block0_zz_coupling_affects_x0():
 
     assert math.isclose(expect_qc, expect_theory, rel_tol=1e-10, abs_tol=1e-10)
 
-def test_sqp_circuit_single_qubit_with_T_phase():
+def test_sqp_circuit_single_qubit_with_P_phase():
     """
     Turn on Rx and T (phase) on qubit 0, check that <X_0> matches
     the analytic expression:
@@ -220,9 +220,9 @@ def test_sqp_circuit_single_qubit_with_T_phase():
         if name == "Rx_0_0[0]":
             assignment[p] = alpha
 
-        # T gate on block 0, qubit 0 (phase pi/4 * t)
-        elif name == "T_0_0[0]":
-            assignment[p] = t
+        # P gate on block 0, qubit 0 (phase pi/4 * t)
+        elif p.name == "P_0_0[0]":
+            assignment[p] = phi  # directly the phase angle
 
         # Everything else stays 0: all generators, ZZ, T on other qubits, etc.
 
