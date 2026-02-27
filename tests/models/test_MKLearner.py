@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.models.mk_learner import MKLearner
+from src.models.non_noisy.mk_learner import MKLearner
 
 
 # -------------------------------------------------------------------
@@ -459,7 +459,6 @@ def test_prepare_approximations_parallel_matches_sequential():
         approx_rank=approx_rank,
         n_hutchinson_probes=n_probes,
         approx_seed=seed,
-        n_workers=1,   # force sequential in prepare_approximations
     )
 
     # --- Parallel learner: n_workers > 1 ---
@@ -473,7 +472,6 @@ def test_prepare_approximations_parallel_matches_sequential():
         approx_rank=approx_rank,
         n_hutchinson_probes=n_probes,
         approx_seed=seed,
-        n_workers=4,   # allow parallel path (capped by E)
     )
 
     # Basic sanity
