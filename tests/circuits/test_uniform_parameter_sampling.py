@@ -7,7 +7,7 @@ from qiskit.quantum_info import Statevector
 
 from src.circuits.circuit_building import CircuitFactory
 from src.circuits.configs import CircuitArchitecture, BlockSpec
-from src.circuits.parameter_sampling import UniformParameterSamplingStrategy
+from src.circuits.param_sampling.base_sampling import UniformParameterSamplingStrategy
 
 
 def build_5q_architecture(input_dim: int = 2, num_layers: int = 2) -> CircuitArchitecture:

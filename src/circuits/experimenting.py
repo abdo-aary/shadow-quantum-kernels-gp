@@ -1,10 +1,10 @@
-from typing import Optional, List, Tuple
+from typing import Optional
 import numpy as np
 from qiskit import QuantumCircuit
 
 from src.circuits.configs import CircuitArchitecture
 from src.circuits.circuit_building import CircuitFactory
-from src.circuits.parameter_sampling import ParameterSamplingStrategy
+from src.circuits.param_sampling.base_sampling import ParameterSamplingStrategy
 
 
 class Experiment:

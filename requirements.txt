@@ -2,3 +2,5 @@ qiskit[visualization]~=2.2.3
 povm_toolbox~=0.2.0
 qiskit-aer~=0.17.2
 pytest~=9.0.1
+torch~=2.6.0+cu124
+gpytorch~=1.14.2

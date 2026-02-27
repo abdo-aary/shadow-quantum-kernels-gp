@@ -1,53 +1,16 @@
-# tests/data/test_synthetic.py
-
 import numpy as np
 
 from data.synthetic import (
-    KernelConfig,
     make_dataset,
     _kernel_matrix,
 )
-
-
-def _kernel_configs():
-    return [
-        KernelConfig(
-            name="rbf",
-            kernel_type="rbf",
-            params={"lengthscale": 0.3},
-        ),
-        KernelConfig(
-            name="matern32",
-            kernel_type="matern32",
-            params={"lengthscale": 0.3},
-        ),
-        KernelConfig(
-            name="nonstat_amp",
-            kernel_type="nonstat_amp",
-            params={
-                "base_lengthscale": 0.3,
-                "a": 0.3,
-                "b": 0.6,
-                "c": 2.0,
-            },
-        ),
-        KernelConfig(
-            name="nonstat_ls",
-            kernel_type="nonstat_ls",
-            params={
-                "ell_min": 0.1,
-                "ell_max": 0.8,
-                "c": 2.0,
-                "ell_rest": 0.3,
-            },
-        ),
-    ]
+from data.kernel_configs import default_kernel_configs
 
 
 def test_make_dataset_shapes_and_lengths():
-    M = 150
+    M = 20
     input_dim = 2
-    cfgs = _kernel_configs()
+    cfgs = default_kernel_configs()
 
     data = make_dataset(
         M=M,
@@ -61,7 +24,7 @@ def test_make_dataset_shapes_and_lengths():
     labels = data["labels"]
 
     assert X.shape == (M, input_dim)
-    assert isinstance(labels, list)
+    assert isinstance(labels, np.ndarray)
     assert len(labels) == len(cfgs)
 
     for y in labels:
@@ -70,9 +33,9 @@ def test_make_dataset_shapes_and_lengths():
 
 
 def test_make_dataset_reproducibility_with_seed():
-    M = 50
+    M = 20
     input_dim = 1
-    cfgs = _kernel_configs()
+    cfgs = default_kernel_configs()
 
     data1 = make_dataset(
         M=M,
@@ -102,7 +65,7 @@ def test_make_dataset_reproducibility_with_seed():
 def test_kernel_matrix_in_unit_range_and_diag_one():
     M = 40
     input_dim = 1
-    cfgs = _kernel_configs()
+    cfgs = default_kernel_configs()
 
     # Use a fixed X so we can reuse across kernels
     rng = np.random.default_rng(0)

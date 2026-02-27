@@ -11,17 +11,33 @@ from qiskit import transpile
 
 from src.circuits.configs import CircuitArchitecture
 
+from pathlib import Path
+import pickle
+
 DEFAULT_BACKEND = AerSimulator(
     method="statevector",  # CPU statevector
     device="CPU"
 )
 
 
+@dataclass
 class Results(ABC):
-    ...
+    arch: CircuitArchitecture
+
+    @abstractmethod
+    def save(self, file: str | Path) -> None:
+        """Save results object to a file."""
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def load(file: str | Path) -> "Results":
+        """Load a results object from a file."""
+        ...
+
 
 @dataclass
-class ExactResults:
+class ExactResults(Results):
     """
     This must contain exact results which are to be exact statevectors obtained after running each circuit in each pub.
     Concretely, having a list of pubs = [pub_r : 1 <= r <= R], where each pub_r = (qc, params_r) with params_r is a
@@ -30,6 +46,40 @@ class ExactResults:
     """
     states: np.ndarray
     arch: CircuitArchitecture
+
+    def save(self, file: str | Path) -> None:
+        """Serialize ExactResults (states + arch) to disk."""
+        path = Path(file)
+        with path.open("wb") as f:
+            # Use an explicit dict for future-proofing instead of dumping self directly.
+            pickle.dump(
+                {
+                    "cls": "ExactResults",
+                    "states": self.states,
+                    "arch": self.arch,
+                },
+                f,
+                protocol=pickle.HIGHEST_PROTOCOL,
+            )
+
+    @staticmethod
+    def load(file: str | Path) -> "ExactResults":
+        """Load ExactResults from a file created by `save`."""
+        path = Path(file)
+        with path.open("rb") as f:
+            obj = pickle.load(f)
+
+        # Support both: (a) whole-object pickle, (b) dict format above
+        if isinstance(obj, ExactResults):
+            return obj
+
+        if isinstance(obj, dict) and obj.get("cls") == "ExactResults":
+            states = obj["states"]
+            arch = obj["arch"]
+            return ExactResults(states=states, arch=arch)
+
+        raise TypeError(f"File {file} does not contain a valid ExactResults object.")
+
 
 class BaseCircuitsRunner(ABC):
     """
@@ -41,11 +91,13 @@ class BaseCircuitsRunner(ABC):
     def run_pubs(self, **kwargs) -> Results:
         ...
 
+
 class ExactCircuitsRunner(BaseCircuitsRunner):
     """
     Interface setting the logic of how we run the circuits. This is to be implemented by two classes, ExactCircuitRunner
     and ShadowCircuitRunner. The results of these
     """
+
     def __init__(self, arch: CircuitArchitecture):
         self.arch = arch
 

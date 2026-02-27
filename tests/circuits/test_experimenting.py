@@ -4,7 +4,7 @@ from qiskit import QuantumCircuit
 
 from src.circuits.configs import CircuitArchitecture, BlockSpec
 from src.circuits.circuit_building import CircuitFactory
-from src.circuits.parameter_sampling import UniformParameterSamplingStrategy
+from src.circuits.param_sampling.base_sampling import UniformParameterSamplingStrategy
 from src.circuits.experimenting import Experiment
 
 

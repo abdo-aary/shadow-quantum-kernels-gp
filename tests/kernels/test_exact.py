@@ -2,8 +2,15 @@ import numpy as np
 import pytest
 
 from src.circuits.configs import CircuitArchitecture, BlockSpec
+
+import pickle
+from dataclasses import dataclass
+from typing import List, Tuple
+
 from src.runners.circuit_running import ExactResults
 from src.kernels.exact import ExactGramsRetriever
+
+
 
 
 @pytest.fixture
@@ -79,7 +86,7 @@ def test_exact_grams_matches_theory_known_states(two_block_arch):
             states[r, m, :] = np.kron(chi[r][m], phi[r][m])
 
     results = ExactResults(states=states, arch=two_block_arch)
-    retriever = ExactGramsRetriever(arch=two_block_arch)
+    retriever = ExactGramsRetriever(arch=two_block_arch, exact_grams=None)
     grams = retriever.get_exact_grams(results)
 
     assert grams.shape == (R, 2, M, M)
@@ -130,7 +137,7 @@ def test_exact_grams_are_psd_and_symmetric_for_random_states(two_block_arch):
 
     states = _random_normalized_states(R, M, n, seed=42)
     results = ExactResults(states=states, arch=two_block_arch)
-    retriever = ExactGramsRetriever(arch=two_block_arch)
+    retriever = ExactGramsRetriever(arch=two_block_arch, exact_grams=None)
 
     grams = retriever.get_exact_grams(results)
     assert grams.shape == (R, 2, M, M)
@@ -146,3 +153,130 @@ def test_exact_grams_are_psd_and_symmetric_for_random_states(two_block_arch):
             # Positive semi-definite: eigenvalues >= -tol
             eigvals = np.linalg.eigvalsh(G)
             assert eigvals.min() >= -tol, f"Gram matrix not PSD for r={r}, b={b}"
+
+
+# ---------------------------------------------------------------------------
+# Small dummy architecture for tests
+# ---------------------------------------------------------------------------
+
+@dataclass(eq=True)
+class DummyBlock:
+    qubits: Tuple[int, ...]
+
+
+@dataclass(eq=True)
+class DummyArch:
+    """
+    Minimal stand-in for CircuitArchitecture for testing ExactGramsRetriever.
+
+    It only needs:
+      - num_qubits: int
+      - blocks: iterable of objects with a `.qubits` attribute
+    """
+    num_qubits: int
+    blocks: List[DummyBlock]
+
+
+def make_dummy_arch(n_qubits: int) -> DummyArch:
+    # One 1-qubit block per qubit: {0}, {1}, ..., {n-1}
+    blocks = [DummyBlock(qubits=(q,)) for q in range(n_qubits)]
+    return DummyArch(num_qubits=n_qubits, blocks=blocks)
+
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+def test_get_exact_grams_parallel_matches_sequential():
+    """
+    Check that using multiple workers (n_jobs > 1) gives the same
+    Gram tensors as the sequential implementation (n_jobs = 1).
+    """
+    rng = np.random.default_rng(123)
+
+    n_qubits = 3
+    dim = 1 << n_qubits  # 2**n_qubits
+    R = 4                # number of draws
+    M = 5                # number of inputs per draw
+
+    # Random complex statevectors of shape (R, M, 2**n)
+    states_real = rng.normal(size=(R, M, dim))
+    states_imag = rng.normal(size=(R, M, dim))
+    states = states_real + 1j * states_imag
+
+    arch = make_dummy_arch(n_qubits)
+    results = ExactResults(states=states, arch=arch)
+
+    retriever = ExactGramsRetriever(arch=arch, exact_grams=None)
+
+    # Sequential path
+    grams_seq = retriever.get_exact_grams(results, n_jobs=1)
+
+    # Parallel path (ensure n_jobs > 1 and <= R)
+    grams_par = retriever.get_exact_grams(results, n_jobs=3)
+
+    assert grams_seq.shape == grams_par.shape
+    assert np.allclose(grams_seq, grams_par, atol=1e-10)
+
+
+def test_exact_grams_retriever_save_and_load_roundtrip(tmp_path: pytest.TempPathFactory):
+    """
+    Check that saving and loading ExactGramsRetriever preserves:
+      - the architecture
+      - the last computed exact_grams tensor
+      - behaviour (get_exact_grams still yields the same result)
+    """
+    rng = np.random.default_rng(42)
+
+    n_qubits = 2
+    dim = 1 << n_qubits
+    R = 3
+    M = 4
+
+    states_real = rng.normal(size=(R, M, dim))
+    states_imag = rng.normal(size=(R, M, dim))
+    states = states_real + 1j * states_imag
+
+    arch = make_dummy_arch(n_qubits)
+    results = ExactResults(states=states, arch=arch)
+
+    retriever = ExactGramsRetriever(arch=arch, exact_grams=None)
+
+    # Reference Gram tensors (and populate retriever.exact_grams)
+    grams_ref = retriever.get_exact_grams(results, n_jobs=1)
+    assert retriever.exact_grams is not None
+    np.testing.assert_allclose(retriever.exact_grams, grams_ref, atol=1e-10)
+
+    # --- Test the official save/load API (dict payload) ---
+    path = tmp_path / "exact_grams_retriever.pkl"
+    retriever.save(path)
+
+    loaded = ExactGramsRetriever.load(path)
+
+    assert isinstance(loaded, ExactGramsRetriever)
+    # arch should round-trip
+    assert loaded.arch == arch
+
+    # exact_grams should be restored
+    assert loaded.exact_grams is not None
+    np.testing.assert_allclose(loaded.exact_grams, grams_ref, atol=1e-10)
+
+    # Behaviour after load: recomputing should match as well
+    grams_loaded = loaded.get_exact_grams(results, n_jobs=1)
+    np.testing.assert_allclose(grams_loaded, grams_ref, atol=1e-10)
+
+    # --- Also test backward-compatible whole-object pickle path ---
+    direct_path = tmp_path / "exact_grams_retriever_direct.pkl"
+    with direct_path.open("wb") as f:
+        pickle.dump(retriever, f)
+
+    loaded_direct = ExactGramsRetriever.load(direct_path)
+    assert isinstance(loaded_direct, ExactGramsRetriever)
+
+    # direct pickle preserves attribute state automatically
+    assert loaded_direct.exact_grams is not None
+    np.testing.assert_allclose(loaded_direct.exact_grams, grams_ref, atol=1e-10)
+
+    grams_direct = loaded_direct.get_exact_grams(results, n_jobs=1)
+    np.testing.assert_allclose(grams_direct, grams_ref, atol=1e-10)
+

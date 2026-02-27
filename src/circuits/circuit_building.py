@@ -1,4 +1,5 @@
-from math import pi
+from math import pi, sqrt
+import numpy as np
 from qiskit import QuantumCircuit
 from qiskit.circuit import ParameterVector
 
@@ -9,90 +10,74 @@ class CircuitFactory:
     """Factory for building SQP circuits as in the paper."""
 
     @staticmethod
-    def createSQPcircuit(cfg: CircuitArchitecture) -> QuantumCircuit:
+    def createSQPcircuit(cfg: CircuitArchitecture, norm_jitter: float = 1e-6) -> QuantumCircuit:
         """
         Build an SQP circuit implementing
 
-            U(x, ϑ) = W^{(L)} G_L(x) ... W^{(1)} G_1(x),
+            U(x, ϑ) = W_L G_L(x) ... W_1 G_1(x),
 
-        with per-block structure W^{(b,ℓ)} and G_{b,ℓ}(x) as in eqs. (5) and (6).
+        with layer structure.
 
         Parameters
         ----------
         cfg : CircuitArchitecture
-            Architecture specification (num_qubits, blocks, input_dim, num_layers).
+            Architecture specification (num_qubits, layers, input_dim).
+        norm_jitter: float
+            To avoid division per zero errors
 
         Returns
         -------
         QuantumCircuit
             A parametrized Qiskit circuit with:
             - data parameters x[0:input_dim]
-            - generator parameters xi_ℓ[j], deltas_{b,ℓ}[q]
-            - evolution parameters P_{b,ℓ}[q], ZZ_{b,ℓ}[edge], Rx_{b,ℓ}[q]
+            - generator parameters xi_ℓ[j], deltas_{ℓ}[q]
+            - evolution parameters alpha, beta and omega
         """
         # Input data parameters x ∈ R^{ζ}
         x = ParameterVector("x", cfg.input_dim)
 
         qc = QuantumCircuit(cfg.num_qubits, name="SQP")
+        for q in qc.qubits:
+            qc.h(q)
 
         # Loop over layers ℓ = 0, ..., L-1
-        for ell in range(cfg.num_layers):
-            # ξ_ℓ ∈ R^{ζ}; same for all blocks at layer ℓ
+        for ell, layer in enumerate(cfg.layers):
+            # -------------------------------
+            # 1) Generator G_ℓ(x)
+            # -------------------------------
             xi_ell = ParameterVector(f"xi_{ell}", cfg.input_dim)
+            delta_ell = ParameterVector(f"delta_{ell}", len(layer.qubits))
 
-            # Scalar projection x_ell^eff = ξ_ℓ · x (ParameterExpression)
-            x_eff_ell = sum(xi_ell[j] * x[j] for j in range(cfg.input_dim))
+            norm_x_sq = sum(x[j] ** 2 for j in range(cfg.input_dim))
+            # norm_x = norm_x_sq ** 0.5 + norm_jitter
 
-            # Loop over blocks b
-            for b, block in enumerate(cfg.blocks):
-                qubits = list(block.qubits)
-                edges = list(block.edges)
+            gamma_ell = sum(xi_ell[j] * x[j] for j in range(cfg.input_dim))     # / norm_x
 
-                # -------------------------------
-                # 1) Generator G_{b,ℓ}(x)  (eq. (6) with x ↦ ξ_ℓ·x)
-                # -------------------------------
-                # δ^{(q)}_{b,ℓ} for q ∈ Q_b
-                deltas_b_ell = ParameterVector(
-                    f"deltas_{b}_{ell}", length=len(qubits)
-                )
+            for i, q in enumerate(layer.qubits):
+                injected_angle_q = delta_ell[i] * gamma_ell
+                qc.rz(injected_angle_q, q)
 
-                for idx, q in enumerate(qubits):
-                    # G^{(q)}_{b,ℓ}(x) ~ Rz( (ξ_ℓ·x) δ^{(q)}_{b,ℓ} )
-                    angle = x_eff_ell * deltas_b_ell[idx]
-                    qc.rz(angle, q)
+            # -------------------------------
+            # 1) Unitary W_ℓ(x)
+            # -------------------------------
+            alpha_ell = ParameterVector(f"alpha_{ell}", len(layer.qubits))
+            # a) R_x rotations
+            for i, q in enumerate(layer.qubits):
+                injected_angle_q = alpha_ell[i]
+                qc.rx(injected_angle_q, q)
 
-                # -------------------------------
-                # 2) Unitary W^{(b,ℓ)} (eq. (5))
-                # -------------------------------
+            # b) ZZ couplings:
+            # We use RZZ(α), which realizes exp(-i α/2 Z⊗Z);
+            beta_ell = ParameterVector(
+                f"beta_{ell}", length=len(layer.edges)
+            )
+            for e_idx, (q1, q2) in enumerate(layer.edges):
+                qc.rzz(beta_ell[e_idx], q1, q2)
 
-                # a) Local non-diagonal rotations Rx(γ^{(q)}_{b,ℓ})
-                Rx_params_b_ell = ParameterVector(
-                    f"Rx_{b}_{ell}", length=len(qubits)
-                )
-                for idx, q in enumerate(qubits):
-                    qc.rx(Rx_params_b_ell[idx], q)
-
-                # b) ZZ couplings: exp(i α_{b,ℓ}^{(q,q')} Z_q Z_{q'})
-                # We use RZZ(2 * α), which realizes exp(-i α Z⊗Z);
-                # this is equivalent up to α ↦ -α reparameterization.
-                ZZ_params_b_ell = ParameterVector(
-                    f"ZZ_{b}_{ell}", length=len(edges)
-                )
-                for e_idx, (q1, q2) in enumerate(edges):
-                    qc.rzz(2 * ZZ_params_b_ell[e_idx], q1, q2)
-
-                # c) Generic phase gates P_q(φ^{(q)}_{b,ℓ})
-                # Implemented directly as P(φ), where φ ∈ (-π, π] is a learnable / sampled parameter.
-                P_params_b_ell = ParameterVector(
-                    f"P_{b}_{ell}", length=len(qubits)
-                )
-                for idx, q in enumerate(qubits):
-                    qc.p(P_params_b_ell[idx], q)
-
-
-            # At this point, for layer ℓ, we have applied:
-            #   [⊗_b W^{(b,ℓ)}] [⊗_b G_{b,ℓ}(x)]
-            # in time order G_{1}, W^{(1)}, G_{2}, W^{(2)}, ...
-            # matching U = W^{(L)} G_L ... W^{(1)} G_1 with ℓ increasing.
+            # a) R_y rotations
+            omega_ell = ParameterVector(f"omega_{ell}", len(layer.qubits))
+            for i, q in enumerate(layer.qubits):
+                injected_angle_q = omega_ell[i]
+                qc.ry(injected_angle_q, q)
 
         return qc
