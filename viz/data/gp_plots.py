@@ -83,7 +83,7 @@ def plot_gp_datasets(
         # Use both scatter and line for clarity, with default colors
         ax.scatter(x_plot, y_k, marker='.')
         # Title from config name if present, otherwise kernel_type
-        if kernel_names != 0:
+        if kernel_names:
             title = kernel_names[k]
         else:
             title = getattr(cfg, "name", None) or cfg.kernel_type
