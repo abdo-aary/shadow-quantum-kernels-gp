@@ -36,3 +36,7 @@ output/
 *draft*
 
 notebooks/experiments/dep/
+
+.codex
+
+qcnc_presentation/
